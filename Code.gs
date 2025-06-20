@@ -54,6 +54,7 @@ class ExpenseManagerApp {
 
   setup() {
     this._validateSelections();
+    this._standardizeDateFormat();
     this._sortByDate();
     this._setupDropdowns();
   }
@@ -87,13 +88,61 @@ class ExpenseManagerApp {
     this._fetchAllSelections();
   }
 
+  _standardizeDateFormat() {
+    let invalidDateCount = 0;
+    for (const sheetName of this._expenseSheetNames) {
+      Logger.log(`Standardizing date format in sheet ${sheetName}`);
+      let sheet = this._spreadSheet.getSheetByName(sheetName);
+      const headerRow = sheet.getDataRange().getValues()[0];
+      const dateIdx = this._getColumnIndexBasedOnColumnName(headerRow, "Date");
+      const dateColNum = dateIdx + 1;
+      const dateRowNum = 2;
+
+      const lastRow = sheet.getLastRow();
+      let dataRange = sheet.getRange(dateRowNum, dateColNum, lastRow - 1, 1);
+      const dateValues = dataRange.getValues();
+
+      const newDateValues = [];
+      let invalidDateRowNums = [];
+
+      for(let i = 0; i < dateValues.length; ++i) {
+        const originalValue = dateValues[i][0];
+        const date = new Date(originalValue);
+        if(date.toString() !== "Invalid Date") {
+          const timezone = this._spreadSheet.getSpreadsheetTimeZone();
+          const formattedDate = Utilities.formatDate(date, timezone, "dd-MMM-yyyy");
+          newDateValues.push([formattedDate]);
+        } else {
+          Logger.log(`Row ${i + 2}: Invalid date format`);
+          ++invalidDateCount;
+          newDateValues.push([originalValue]);
+          invalidDateRowNums.push(i + 2);
+        }
+      }
+
+      dataRange.setValues(newDateValues);
+      dataRange.setNumberFormat("dd-MMM-yyyy");
+      dataRange.setBackground('null');
+      for (const rowNum of invalidDateRowNums) {
+        sheet.getRange(rowNum, dateColNum).setBackground('red');
+      }
+    }
+    Logger.log("Date standardization complete");
+
+    if(invalidDateCount > 0) {
+      const errMsg = `Found ${invalidDateCount} cells with invalid date. \n\nCheck the highlighted cells for details`;
+      let ui = SpreadsheetApp.getUi();
+      ui.alert("Date Validation Error", errMsg, ui.ButtonSet.OK);
+    }
+  }
+
   _populateMonthlyReportData() {
     for(const sheetName of this._expenseSheetNames) {
       // Iterate through all sheets; multiple sheets might contain "Daily Expenses" group data.
       Logger.log(`Analyzing ${sheetName} for computing Monthly report from Daily Expenses`);
       let sheet = this._spreadSheet.getSheetByName(sheetName);
       const values = sheet.getDataRange().getValues();
-      const headerRow = values[0];
+      const headerRow = sheet.getDataRange().getValues()[0];
       const amountIdx = this._getColumnIndexBasedOnColumnName(headerRow, "Amount (INR)");
       const expCatIdx = this._getColumnIndexBasedOnColumnName(headerRow, "Expense Category");
       const expGrpIdx = this._getColumnIndexBasedOnColumnName(headerRow, "Expense Group");
@@ -251,10 +300,6 @@ class ExpenseManagerApp {
     for(const sheetName of this._expenseSheetNames) {
       Logger.log(`Sorting by date in sheet ${sheetName}`);
       const expenseSheet = this._spreadSheet.getSheetByName(sheetName);
-      if(!expenseSheet) {
-        throw new Error(`${sheetName} does not exist!`);
-      }
-
       let range = expenseSheet.getRange(2, 1, expenseSheet.getLastRow() - 1, expenseSheet.getLastColumn());
       range.sort({column: 1, ascending: true});
     }
