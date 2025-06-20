@@ -4,6 +4,7 @@ function onOpen() {
     let menu = ui.createMenu("Expense Manager");
     menu.addItem("Validate & Setup Dropdowns", "setup");
     menu.addItem("Generate Summary", "summarize")
+    menu.addItem("Monthly report from Daily Expenses", "monthlyReport")
     menu.addToUi();
   } catch (err) {
       Logger.log(`Error occured ${err.message}`);
@@ -14,10 +15,8 @@ function onOpen() {
 function setup() {
   try {
     let expenseMgrApp = new ExpenseManagerApp();
-    expenseMgrApp.validateSelections();
-    expenseMgrApp.setupDropdowns();
-
-    Browser.msgBox("Success", "Setup Completed!", Browser.Buttons.OK);
+    expenseMgrApp.setup();
+    Browser.msgBox("Success", "Setup completed!", Browser.Buttons.OK);
   } catch (err) {
       Logger.log(`Error occured ${err.message}`);
       Browser.msgBox("Error", err.message, Browser.Buttons.OK);
@@ -27,9 +26,21 @@ function setup() {
 function summarize() {
   try {
     let expenseMgrApp = new ExpenseManagerApp();
-    expenseMgrApp.validateSelections();
+    expenseMgrApp.setup();
     expenseMgrApp.generateSummary();
-    Browser.msgBox("Success", "Summary Generation Completed!", Browser.Buttons.OK);
+    Browser.msgBox("Success", "Summary generation completed!", Browser.Buttons.OK);
+  } catch (err) {
+      Logger.log(`Error occured ${err.message}`);
+      Browser.msgBox("Error", err.message, Browser.Buttons.OK);
+  }
+}
+
+function monthlyReport() {
+  try {
+    let expenseMgrApp = new ExpenseManagerApp();
+    expenseMgrApp.setup();
+    expenseMgrApp.monthlyReport();
+    Browser.msgBox("Success", "Monthly report generation completed!", Browser.Buttons.OK);
   } catch (err) {
       Logger.log(`Error occured ${err.message}`);
       Browser.msgBox("Error", err.message, Browser.Buttons.OK);
@@ -41,10 +52,27 @@ class ExpenseManagerApp {
     this._init();
   }
 
+  setup() {
+    this._validateSelections();
+    this._sortByDate();
+    this._setupDropdowns();
+  }
+
+  generateSummary() {
+    this._populateSummaryData();
+    this.__generateSummaryImpl();
+  }
+
+  monthlyReport() {
+    this._populateMonthlyReportData();
+    this._generateMonthlyReport();
+  }
+
   _init() {
     this._spreadSheet = SpreadsheetApp.getActiveSpreadsheet();
     this._selectionsSheetName = "Selections";
     this._summarySheetName = "Summary";
+    this._monthlyReportSheetName = "Monthly Breakdown"
     this._expenseSheetNames = [];
     this._expenseCategories = [];
     this._expenseGroups = [];
@@ -53,12 +81,97 @@ class ExpenseManagerApp {
     this._validationErrors = [];
     this._summaryData = new Map();
     this._totalSum = 0;
+    this._monthlyData = new Map();
 
     this._computeAllExpenseSheetNames();
     this._fetchAllSelections();
   }
 
-  validateSelections() {
+  _populateMonthlyReportData() {
+    for(const sheetName of this._expenseSheetNames) {
+      // Iterate through all sheets; multiple sheets might contain "Daily Expenses" group data.
+      Logger.log(`Analyzing ${sheetName} for computing Monthly report from Daily Expenses`);
+      let sheet = this._spreadSheet.getSheetByName(sheetName);
+      const values = sheet.getDataRange().getValues();
+      const headerRow = values[0];
+      const amountIdx = this._getColumnIndexBasedOnColumnName(headerRow, "Amount (INR)");
+      const expCatIdx = this._getColumnIndexBasedOnColumnName(headerRow, "Expense Category");
+      const expGrpIdx = this._getColumnIndexBasedOnColumnName(headerRow, "Expense Group");
+      const dateIdx = this._getColumnIndexBasedOnColumnName(headerRow, "Date");
+
+      for(let i = 1; i < values.length; ++i) {
+        // start for index 1 as 0th index contains the header
+        const currRow = values[i];
+
+        const expGrpName = currRow[expGrpIdx].toString().trim();
+        if(expGrpName !== "Daily Expenses") {
+          continue;
+        }
+        const expCatName = currRow[expCatIdx].toString().trim();
+        const amount = parseFloat(currRow[amountIdx]);
+        const dateStr = currRow[dateIdx].toString().trim();
+        const dateObj = new Date(dateStr);
+        const monthYearStr = this._getMonthYearString(dateObj);
+
+        let monthlySummary = this._monthlyData.get(monthYearStr);
+        if(!monthlySummary) {
+          monthlySummary = {"MonthlyTotal": 0.0, "CategoricalSum": new Map()};
+          this._monthlyData.set(monthYearStr, monthlySummary);
+        }
+        if(expCatName !== "Refund") {
+          monthlySummary.MonthlyTotal += amount;
+        }
+        const currSum = monthlySummary.CategoricalSum.get(expCatName) || 0;
+        monthlySummary.CategoricalSum.set(expCatName, currSum + amount);
+      }
+    }
+  }
+
+  _generateMonthlyReport() {
+    let output = [];
+    let headerRow = ["Month", ...this._expenseCategories, "Monthly Total (INR)"];
+    output.push(headerRow);
+
+    for(const [monthYearStr, monthInfo] of this._monthlyData) {
+      let monthRow = [];
+      monthRow.push(monthYearStr);
+      for(const categoryName of this._expenseCategories) {
+        const categorySumForTheMonth = monthInfo.CategoricalSum.get(categoryName) || 0;
+        monthRow.push(categorySumForTheMonth);
+      }
+      monthRow.push(monthInfo.MonthlyTotal);
+      output.push(monthRow);
+    }
+    let monthlyReportSheet = this._spreadSheet.getSheetByName(this._monthlyReportSheetName);
+    if(monthlyReportSheet) {
+      monthlyReportSheet.clearContents();
+    } else {
+      monthlyReportSheet = this._spreadSheet.insertSheet(this._monthlyReportSheetName);
+    }
+
+    let range = monthlyReportSheet.getRange(1, 1, output.length, output[0].length);
+    range.setValues(output);
+
+    // Format
+    // Bold header row
+    monthlyReportSheet.getRange(1, 1, 1, output[0].length).setFontWeight("bold");
+    // Auto-resize columns
+    monthlyReportSheet.autoResizeColumns(1, output[0].length);
+
+    Logger.log(`Monthly report Generated in ${this._summarySheetName} sheet`);
+  }
+
+  _getMonthYearString(date) {
+    const monthNames = [
+      "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+      "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+    ];
+    const month = monthNames[date.getMonth()];
+    const year = date.getFullYear();
+    return `${month}-${year}`;
+  }
+
+  _validateSelections() {
     this._validationErrors = [];
     for(const sheetName of this._expenseSheetNames) {
       this._validateSelectionsInSheet(sheetName);
@@ -71,7 +184,7 @@ class ExpenseManagerApp {
     }
   }
 
-  setupDropdowns() {
+  _setupDropdowns() {
     const [ruleExpCat, ruleExpGrp, rulePayer, rulePayMode] = this._getDataValidationRules();
     for(const sheetName of this._expenseSheetNames) {
       Logger.log(`Adding data validation rule for ${sheetName}`);
@@ -100,8 +213,7 @@ class ExpenseManagerApp {
     }
   }
 
-  generateSummary() {
-    this._populateSummaryData();
+  _generateSummaryImpl() {
     let output = [];
     output.push(['Expense Group', 'Expense Category', 'Amount (INR)', '% Within Group', '% of Overall Total']);
     for(const [groupName, groupInfo] of this._summaryData) {
@@ -134,6 +246,20 @@ class ExpenseManagerApp {
 
     Logger.log(`Expense Summary Generated in ${this._summarySheetName} sheet`);
   }
+
+  _sortByDate() {
+    for(const sheetName of this._expenseSheetNames) {
+      Logger.log(`Sorting by date in sheet ${sheetName}`);
+      const expenseSheet = this._spreadSheet.getSheetByName(sheetName);
+      if(!expenseSheet) {
+        throw new Error(`${sheetName} does not exist!`);
+      }
+
+      let range = expenseSheet.getRange(2, 1, expenseSheet.getLastRow() - 1, expenseSheet.getLastColumn());
+      range.sort({column: 1, ascending: true});
+    }
+  }
+
   _populateSummaryData() {
     for(const sheetName of this._expenseSheetNames) {
       Logger.log(`Generating summary for ${sheetName}`);
@@ -166,6 +292,7 @@ class ExpenseManagerApp {
       }
     }
   }
+  
   _getDataValidationRules() {
     const ruleExpCat = SpreadsheetApp.newDataValidation()
                               .requireValueInList(this._expenseCategories)
@@ -190,11 +317,17 @@ class ExpenseManagerApp {
     return [ruleExpCat, ruleExpGrp, rulePayer, rulePayMode];
   }
 
+  _isExcludedSheet(currSheetName) {
+    return currSheetName === this._selectionsSheetName 
+    || currSheetName === this._summarySheetName 
+    || currSheetName === this._monthlyReportSheetName;
+  }
+
   _computeAllExpenseSheetNames() {
     const sheets = this._spreadSheet.getSheets();
     for(const sheet of sheets) {
       const currSheetName = sheet.getName();
-      if(currSheetName === this._selectionsSheetName || currSheetName === this._summarySheetName) {
+      if(this._isExcludedSheet(currSheetName)) {
         continue;
       }
       this._expenseSheetNames.push(currSheetName);
@@ -272,6 +405,7 @@ class ExpenseManagerApp {
       }
     }
     this._checkForDuplicatesInSelection();
+    Logger.log(`Found following expense categories ${this._expenseCategories}`);
   }
 
   _validateSelectionsInSheet(sheetName) {
