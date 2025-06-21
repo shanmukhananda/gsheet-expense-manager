@@ -53,6 +53,7 @@ class ExpenseManagerApp {
   }
 
   setup() {
+    this._applyStandardFormatting();
     this._validateSelections();
     this._standardizeDateFormat();
     this._sortByDate();
@@ -61,7 +62,7 @@ class ExpenseManagerApp {
 
   generateSummary() {
     this._populateSummaryData();
-    this.__generateSummaryImpl();
+    this._generateSummaryImpl();
   }
 
   monthlyReport() {
@@ -86,6 +87,25 @@ class ExpenseManagerApp {
 
     this._computeAllExpenseSheetNames();
     this._fetchAllSelections();
+  }
+
+  _applyStandardFormatting() {
+    let spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+    for(let sheet of spreadsheet.getSheets()) {
+      Logger.log(`Apply formatting to sheet ${sheet.getName()}`);
+      const maxRows = sheet.getMaxRows();
+      const maxCols = sheet.getMaxColumns();
+      const lastCol = sheet.getLastColumn() > 0 ? sheet.getLastColumn() : 1;
+      let range = sheet.getRange(1, 1, maxRows, maxCols);
+      range.setFontFamily("Consolas");
+      
+      for(let iCol = 1; iCol <= lastCol; ++iCol) {
+        sheet.autoResizeColumn(iCol);
+        sheet.setColumnWidth(iCol, sheet.getColumnWidth(iCol) * 1.2);
+      }
+      sheet.setFrozenRows(1);
+    }
+    Logger.log("Finished applying the format");
   }
 
   _standardizeDateFormat() {
