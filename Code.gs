@@ -6,6 +6,7 @@ function onOpen() {
     menu.addItem("Validate data", "setup");
     menu.addItem("Generate summary", "summarize")
     menu.addItem("Monthly report from 'Daily Expenses'", "monthlyReport")
+    menu.addItem("Payer spending report", "payerSpendingReport")
     menu.addToUi();
   } catch (err) {
       Logger.log(`Error occured ${err.message}`);
@@ -51,6 +52,17 @@ function createExpenseSheet() {
     let expenseMgrApp = new ExpenseManagerApp();
     const newSheet = expenseMgrApp.createExpenseSheet();
     Browser.msgBox("Success", `Created new expense sheet '${newSheet.getSheetName()}'`, Browser.Buttons.OK);
+  } catch (err) {
+      Logger.log(`Error occured ${err.message}`);
+      Browser.msgBox("Error", err.message, Browser.Buttons.OK);
+  }
+}
+
+function payerSpendingReport() {
+  try {
+    let expenseMgrApp = new ExpenseManagerApp();
+    expenseMgrApp.payerSpendingReport();
+    Browser.msgBox("Success", "Payer spending report generated", Browser.Buttons.OK);
   } catch (err) {
       Logger.log(`Error occured ${err.message}`);
       Browser.msgBox("Error", err.message, Browser.Buttons.OK);
@@ -110,6 +122,11 @@ class ExpenseManagerApp {
     return newSheet;
   }
 
+  payerSpendingReport() {
+    this._populatePayerData();
+    this._generatePayerSpendingReport();
+  }
+
   _init() {
     this._spreadSheet = SpreadsheetApp.getActiveSpreadsheet();
     // Hardcoded nmaes
@@ -129,6 +146,7 @@ class ExpenseManagerApp {
     this._refundCatName = "Refund";
     this._fontFamily = "Consolas";
     this._invalidDate = "Invalid Date";
+    this._payerReportSheetName = "Payer Spending Report";
 
     // Use array for below contains to detect and error out duplicates
     this._expenseSheetNames = [];
@@ -147,12 +165,14 @@ class ExpenseManagerApp {
     this._summaryData = new Map();
     this._totalSum = 0;
     this._monthlyData = new Map();
+    this._payerData = new Map();
 
     this._computeAllExpenseSheetNames();
     this._fetchAllSelections();
 
     this._summaryHeaderRow = [this._expGrpColName, this._expCatColName, this._amountColName, "% Within Group", "% of Overall Total"];
     this._monthlyReportHeaderRow = ["Month", ...this._expenseCategories, "Monthly Total (INR)"];
+    this._payerSpendReportHeaderRow = ["Payer", ...this._expenseGroups, "Payer Total (INR)"];
   }
 
   _applyStandardFormattingToSheet(sheet) {
@@ -338,6 +358,66 @@ class ExpenseManagerApp {
     return selectionsSheet;
   }
 
+  _populatePayerData() {
+    for(const sheetName of this._expenseSheetNames) {
+      const sheet = this._spreadSheet.getSheetByName(sheetName);
+      Logger.log(`Analyzing ${sheetName} for computing Payer Spending Report`);
+      const values = sheet.getDataRange().getValues();
+      const headerRow = values[0];
+      const amountIdx = this._getColumnIndexBasedOnColumnName(headerRow, this._amountColName);
+      const expGrpIdx = this._getColumnIndexBasedOnColumnName(headerRow, this._expGrpColName);
+      const payerIdx = this._getColumnIndexBasedOnColumnName(headerRow, this._payerColName);
+
+      for(let i = 1; i < values.length; ++i) {
+        // start for index 1 as 0th index contains the header
+        const currRow = values[i];
+        const expGrpName = currRow[expGrpIdx].toString().trim();
+        const amount = parseFloat(currRow[amountIdx]);
+        const payerName = currRow[payerIdx].toString().trim();
+
+        let payerGrpData = this._payerData.get(payerName);
+        if(!payerGrpData) {
+          payerGrpData = {"PayerTotal": 0, "GroupSum": new Map()};
+          this._payerData.set(payerName, payerGrpData);
+        }
+        const currSum = payerGrpData.GroupSum.get(expGrpName) || 0;
+        payerGrpData.PayerTotal += amount;
+        payerGrpData.GroupSum.set(expGrpName, currSum + amount);
+      }
+    }
+  }
+
+  _generatePayerSpendingReport() {
+    let output = [];
+    output.push(this._payerSpendReportHeaderRow);
+
+    for(const [payerName, payerInfo] of this._payerData) {
+      let payerRow = [];
+      payerRow.push(payerName);
+      for(const expGrpName of this._expenseGroups) {
+        const grpSum = payerInfo.GroupSum.get(expGrpName) || 0;
+        payerRow.push(grpSum);
+      }
+      payerRow.push(payerInfo.PayerTotal);
+      output.push(payerRow);
+    }
+    let payerReportSheet = this._spreadSheet.getSheetByName(this._payerReportSheetName);
+    if(payerReportSheet) {
+      payerReportSheet.clearContents();
+    } else {
+      payerReportSheet = this._spreadSheet.insertSheet(this._payerReportSheetName);
+    }
+
+    let range = payerReportSheet.getRange(1, 1, output.length, output[0].length);
+    range.setValues(output);
+
+    // Bold header row
+    payerReportSheet.getRange(1, 1, 1, output[0].length).setFontWeight("bold");
+    this._applyStandardFormattingToSheet(payerReportSheet);
+
+    Logger.log(`Payer report sheet generated in ${this._payerReportSheetName} sheet`);
+  }
+
   _populateMonthlyReportData() {
     for(const sheetName of this._expenseSheetNames) {
       // Iterate through all sheets; multiple sheets might contain "Daily Expenses" group data.
@@ -405,7 +485,7 @@ class ExpenseManagerApp {
     // Bold header row
     monthlyReportSheet.getRange(1, 1, 1, output[0].length).setFontWeight("bold");
     this._applyStandardFormattingToSheet(monthlyReportSheet);
-    Logger.log(`Monthly report Generated in ${this._summarySheetName} sheet`);
+    Logger.log(`Monthly report generated in ${this._summarySheetName} sheet`);
   }
 
   _getMonthYearString(date) {
@@ -567,7 +647,8 @@ class ExpenseManagerApp {
   _isExcludedSheet(currSheetName) {
     return currSheetName === this._selectionsSheetName 
     || currSheetName === this._summarySheetName 
-    || currSheetName === this._monthlyReportSheetName;
+    || currSheetName === this._monthlyReportSheetName
+    || currSheetName === this._payerReportSheetName;
   }
 
   _computeAllExpenseSheetNames() {
