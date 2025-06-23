@@ -17,7 +17,7 @@ function setup() {
   try {
     let expenseMgrApp = new ExpenseManagerApp();
     expenseMgrApp.setup();
-    Browser.msgBox("Success", "Setup completed!", Browser.Buttons.OK);
+    Browser.msgBox("Success", "Setup completed", Browser.Buttons.OK);
   } catch (err) {
       Logger.log(`Error occured ${err.message}`);
       Browser.msgBox("Error", err.message, Browser.Buttons.OK);
@@ -29,7 +29,7 @@ function summarize() {
     let expenseMgrApp = new ExpenseManagerApp();
     expenseMgrApp.setup();
     expenseMgrApp.generateSummary();
-    Browser.msgBox("Success", "Summary generation completed!", Browser.Buttons.OK);
+    Browser.msgBox("Success", "Summary generation completed", Browser.Buttons.OK);
   } catch (err) {
       Logger.log(`Error occured ${err.message}`);
       Browser.msgBox("Error", err.message, Browser.Buttons.OK);
@@ -41,7 +41,7 @@ function monthlyReport() {
     let expenseMgrApp = new ExpenseManagerApp();
     expenseMgrApp.setup();
     expenseMgrApp.monthlyReport();
-    Browser.msgBox("Success", "Monthly report generation completed!", Browser.Buttons.OK);
+    Browser.msgBox("Success", "Monthly report generation completed", Browser.Buttons.OK);
   } catch (err) {
       Logger.log(`Error occured ${err.message}`);
       Browser.msgBox("Error", err.message, Browser.Buttons.OK);
@@ -51,8 +51,8 @@ function monthlyReport() {
 function createExpenseSheet() {
   try {
     let expenseMgrApp = new ExpenseManagerApp();
-    expenseMgrApp.createExpenseSheet();
-    Browser.msgBox("Success", "Monthly report generation completed!", Browser.Buttons.OK);
+    const newSheet = expenseMgrApp.createExpenseSheet();
+    Browser.msgBox("Success", `Created new expense sheet '${newSheet.getSheetName()}'`, Browser.Buttons.OK);
   } catch (err) {
       Logger.log(`Error occured ${err.message}`);
       Browser.msgBox("Error", err.message, Browser.Buttons.OK);
@@ -103,8 +103,9 @@ class ExpenseManagerApp {
     this._applyDatePickerToFirstColumnToSheet(newSheet);
     this._applyNumericValidationToSheet(newSheet);
     this._setupDrowdownsToSheet(newSheet);
-
     Logger.log(`Created new expense sheet ${newSheet.getSheetName()}`);
+
+    return newSheet;
   }
 
   _init() {
