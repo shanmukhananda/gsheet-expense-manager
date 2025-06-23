@@ -3,7 +3,7 @@ function onOpen() {
     let ui = SpreadsheetApp.getUi();
     let menu = ui.createMenu("Expense Manager");
     menu.addItem("Create new expense sheet", "createExpenseSheet");
-    menu.addItem("Validate & setup dropdowns", "setup");
+    menu.addItem("Validate data", "setup");
     menu.addItem("Generate summary", "summarize")
     menu.addItem("Monthly report from 'Daily Expenses'", "monthlyReport")
     menu.addToUi();
@@ -27,7 +27,6 @@ function setup() {
 function summarize() {
   try {
     let expenseMgrApp = new ExpenseManagerApp();
-    expenseMgrApp.setup();
     expenseMgrApp.generateSummary();
     Browser.msgBox("Success", "Summary generation completed", Browser.Buttons.OK);
   } catch (err) {
@@ -39,7 +38,6 @@ function summarize() {
 function monthlyReport() {
   try {
     let expenseMgrApp = new ExpenseManagerApp();
-    expenseMgrApp.setup();
     expenseMgrApp.monthlyReport();
     Browser.msgBox("Success", "Monthly report generation completed", Browser.Buttons.OK);
   } catch (err) {
@@ -74,11 +72,13 @@ class ExpenseManagerApp {
   }
 
   generateSummary() {
+    this._validateSelections();
     this._populateSummaryData();
     this._generateSummaryImpl();
   }
 
   monthlyReport() {
+    this._validateSelections();
     this._populateMonthlyReportData();
     this._generateMonthlyReport();
   }
@@ -86,7 +86,7 @@ class ExpenseManagerApp {
   createExpenseSheet() {
     const date = new Date();
     const timeZone = this._spreadSheet.getSpreadsheetTimeZone();
-    const baseSheetName = Utilities.formatDate(date, timeZone, "MMM yyyy"); // e.g. "Jul 2025"
+    const baseSheetName = Utilities.formatDate(date, timeZone, this._monthYearFormat); // e.g. "Jul 2025"
     let newSheetName = baseSheetName;
     let counter = 0;
     while(this._spreadSheet.getSheetByName(newSheetName) !== null) {
@@ -94,7 +94,9 @@ class ExpenseManagerApp {
       newSheetName = `${baseSheetName} (${counter})`; // e.g. "Jul 2025 (1)"
     }
     let newSheet = this._spreadSheet.insertSheet(newSheetName);
-    const headerRow = ["Date", "Amount (INR)", "Expense Category", "Expense Description", "Expense Group", "Payer", "Payment Mode"];
+    const headerRow = [this._dateColName, this._amountColName, this._expCatColName, 
+                       this._expDescColName, this._expGrpColName, this._payerColName, this._payModeColName];
+
     let range = newSheet.getRange(1, 1, 1, headerRow.length);
     range.setValues([headerRow]);
     range.setFontWeight("bold");
@@ -110,14 +112,37 @@ class ExpenseManagerApp {
 
   _init() {
     this._spreadSheet = SpreadsheetApp.getActiveSpreadsheet();
+    // Hardcoded nmaes
     this._selectionsSheetName = "Selections";
     this._summarySheetName = "Summary";
     this._monthlyReportSheetName = "Monthly Breakdown"
+    this._dateColName = "Date";
+    this._amountColName = "Amount (INR)";
+    this._expCatColName = "Expense Category";
+    this._expDescColName = "Expense Description";
+    this._expGrpColName = "Expense Group";
+    this._payerColName = "Payer";
+    this._payModeColName = "Payment Mode";
+    this._dateFormat = "dd-MMM-yyyy";
+    this._monthYearFormat = "MMM yyyy";
+    this._dailyExpSheetName = "Daily Expenses";
+    this._refundCatName = "Refund";
+    this._fontFamily = "Consolas";
+    this._invalidDate = "Invalid Date";
+
+    // Use array for below contains to detect and error out duplicates
     this._expenseSheetNames = [];
     this._expenseCategories = [];
     this._expenseGroups = [];
     this._payers = [];
     this._paymentModes = [];
+
+    // Set verion of selections for faster lookup
+    this._expenseCategoriesSet = new Set();
+    this._expenseGroupsSet = new Set();
+    this._payersSet = new Set();
+    this._paymentModesSet = new Set();
+
     this._validationErrors = [];
     this._summaryData = new Map();
     this._totalSum = 0;
@@ -125,6 +150,9 @@ class ExpenseManagerApp {
 
     this._computeAllExpenseSheetNames();
     this._fetchAllSelections();
+
+    this._summaryHeaderRow = [this._expGrpColName, this._expCatColName, this._amountColName, "% Within Group", "% of Overall Total"];
+    this._monthlyReportHeaderRow = ["Month", ...this._expenseCategories, "Monthly Total (INR)"];
   }
 
   _applyStandardFormattingToSheet(sheet) {
@@ -133,7 +161,7 @@ class ExpenseManagerApp {
     const maxCols = sheet.getMaxColumns();
     const lastCol = sheet.getLastColumn() > 0 ? sheet.getLastColumn() : 1;
     let range = sheet.getRange(1, 1, maxRows, maxCols);
-    range.setFontFamily("Consolas");
+    range.setFontFamily(this._fontFamily);
     for(let iCol = 1; iCol <= lastCol; ++iCol) {
       sheet.autoResizeColumn(iCol);
       // Further increase the size by 20%
@@ -155,7 +183,7 @@ class ExpenseManagerApp {
     const numRows = sheet.getMaxRows()-1; // skip the first row
     const numCols = 1;
     const dateRange = sheet.getRange(rowNum, colNum, numRows, numCols);
-    dateRange.setNumberFormat('dd-MMM-yyyy');
+    dateRange.setNumberFormat(this._dateFormat);
     const dateRule = SpreadsheetApp.newDataValidation()
                                    .requireDate()
                                    .setAllowInvalid(false)
@@ -167,7 +195,7 @@ class ExpenseManagerApp {
   _applyNumericValidationToSheet(sheet) {
       const values = sheet.getDataRange().getValues();
       const headerRow = sheet.getDataRange().getValues()[0];
-      const amountIdx = this._getColumnIndexBasedOnColumnName(headerRow, "Amount (INR)");
+      const amountIdx = this._getColumnIndexBasedOnColumnName(headerRow, this._amountColName);
       const amountColNum = amountIdx + 1;
       const startRowNum = 2;
       const numRows = sheet.getMaxRows() - 1; // skip the header row
@@ -197,7 +225,7 @@ class ExpenseManagerApp {
       let sheet = this._spreadSheet.getSheetByName(sheetName);
       this._applyDatePickerToFirstColumnToSheet(sheet);
       const headerRow = sheet.getDataRange().getValues()[0];
-      const dateIdx = this._getColumnIndexBasedOnColumnName(headerRow, "Date");
+      const dateIdx = this._getColumnIndexBasedOnColumnName(headerRow, this._dateColName);
       const dateColNum = dateIdx + 1;
       const dateRowNum = 2;
 
@@ -215,9 +243,9 @@ class ExpenseManagerApp {
       for(let i = 0; i < dateValues.length; ++i) {
         const originalValue = dateValues[i][0];
         const date = new Date(originalValue);
-        if(date.toString() !== "Invalid Date") {
+        if(date.toString() !== this._invalidDate) {
           const timezone = this._spreadSheet.getSpreadsheetTimeZone();
-          const formattedDate = Utilities.formatDate(date, timezone, "dd-MMM-yyyy");
+          const formattedDate = Utilities.formatDate(date, timezone, this._dateFormat);
           newDateValues.push([formattedDate]);
         } else {
           Logger.log(`Row ${i + 2}: Invalid date format`);
@@ -228,7 +256,7 @@ class ExpenseManagerApp {
       }
 
       dataRange.setValues(newDateValues);
-      dataRange.setNumberFormat("dd-MMM-yyyy");
+      dataRange.setNumberFormat(this._dateFormat);
       dataRange.setBackground('null');
       for (const rowNum of invalidDateRowNums) {
         sheet.getRange(rowNum, dateColNum).setBackground('red');
@@ -250,17 +278,17 @@ class ExpenseManagerApp {
       let sheet = this._spreadSheet.getSheetByName(sheetName);
       const values = sheet.getDataRange().getValues();
       const headerRow = sheet.getDataRange().getValues()[0];
-      const amountIdx = this._getColumnIndexBasedOnColumnName(headerRow, "Amount (INR)");
-      const expCatIdx = this._getColumnIndexBasedOnColumnName(headerRow, "Expense Category");
-      const expGrpIdx = this._getColumnIndexBasedOnColumnName(headerRow, "Expense Group");
-      const dateIdx = this._getColumnIndexBasedOnColumnName(headerRow, "Date");
+      const amountIdx = this._getColumnIndexBasedOnColumnName(headerRow, this._amountColName);
+      const expCatIdx = this._getColumnIndexBasedOnColumnName(headerRow, this._expCatColName);
+      const expGrpIdx = this._getColumnIndexBasedOnColumnName(headerRow, this._expGrpColName);
+      const dateIdx = this._getColumnIndexBasedOnColumnName(headerRow, this._dateColName);
 
       for(let i = 1; i < values.length; ++i) {
         // start for index 1 as 0th index contains the header
         const currRow = values[i];
 
         const expGrpName = currRow[expGrpIdx].toString().trim();
-        if(expGrpName !== "Daily Expenses") {
+        if(expGrpName !== this._dailyExpSheetName) {
           continue;
         }
         const expCatName = currRow[expCatIdx].toString().trim();
@@ -274,7 +302,7 @@ class ExpenseManagerApp {
           monthlySummary = {"MonthlyTotal": 0.0, "CategoricalSum": new Map()};
           this._monthlyData.set(monthYearStr, monthlySummary);
         }
-        if(expCatName !== "Refund") {
+        if(expCatName !== this._refundCatName) {
           monthlySummary.MonthlyTotal += amount;
         }
         const currSum = monthlySummary.CategoricalSum.get(expCatName) || 0;
@@ -285,8 +313,7 @@ class ExpenseManagerApp {
 
   _generateMonthlyReport() {
     let output = [];
-    let headerRow = ["Month", ...this._expenseCategories, "Monthly Total (INR)"];
-    output.push(headerRow);
+    output.push(this._monthlyReportHeaderRow);
 
     for(const [monthYearStr, monthInfo] of this._monthlyData) {
       let monthRow = [];
@@ -310,6 +337,7 @@ class ExpenseManagerApp {
 
     // Bold header row
     monthlyReportSheet.getRange(1, 1, 1, output[0].length).setFontWeight("bold");
+    this._applyStandardFormattingToSheet(monthlyReportSheet);
     Logger.log(`Monthly report Generated in ${this._summarySheetName} sheet`);
   }
 
@@ -371,7 +399,7 @@ class ExpenseManagerApp {
 
   _generateSummaryImpl() {
     let output = [];
-    output.push(['Expense Group', 'Expense Category', 'Amount (INR)', '% Within Group', '% of Overall Total']);
+    output.push(this._summaryHeaderRow);
     for(const [groupName, groupInfo] of this._summaryData) {
       const grpTotal = groupInfo.GroupTotal;
       const grpPercent = grpTotal / this._totalSum * 100;
@@ -395,6 +423,7 @@ class ExpenseManagerApp {
     range.setValues(output);
 
     summarySheet.getRange(1, 1, 1, output[0].length).setFontWeight("bold");
+    this._applyStandardFormattingToSheet(summarySheet);
     Logger.log(`Expense Summary Generated in ${this._summarySheetName} sheet`);
   }
 
@@ -417,9 +446,9 @@ class ExpenseManagerApp {
       let sheet = this._spreadSheet.getSheetByName(sheetName);
       const values = sheet.getDataRange().getValues();
       const headerRow = values[0];
-      const amountIdx = this._getColumnIndexBasedOnColumnName(headerRow, "Amount (INR)");
-      const expCatIdx = this._getColumnIndexBasedOnColumnName(headerRow, "Expense Category");
-      const expGrpIdx = this._getColumnIndexBasedOnColumnName(headerRow, "Expense Group");
+      const amountIdx = this._getColumnIndexBasedOnColumnName(headerRow, this._amountColName);
+      const expCatIdx = this._getColumnIndexBasedOnColumnName(headerRow, this._expCatColName);
+      const expGrpIdx = this._getColumnIndexBasedOnColumnName(headerRow, this._expGrpColName);
 
       for(let i = 1; i < values.length; ++i) {
         // start for index 1 as 0th index contains the header
@@ -434,7 +463,7 @@ class ExpenseManagerApp {
           groupSummary = {"GroupTotal": 0.0, "CategorialSum": new Map()};
           this._summaryData.set(expGrpName, groupSummary);
         }
-        if(expCatName !== "Refund") {
+        if(expCatName !== this._refundCatName) {
           groupSummary.GroupTotal += amount;
           this._totalSum += amount;
         }
@@ -522,10 +551,10 @@ class ExpenseManagerApp {
   
   _getColumnIndices(headerRow) {
     return [
-      this._getColumnIndexBasedOnColumnName(headerRow, "Expense Category"),
-      this._getColumnIndexBasedOnColumnName(headerRow, "Expense Group"),
-      this._getColumnIndexBasedOnColumnName(headerRow, "Payer"),
-      this._getColumnIndexBasedOnColumnName(headerRow, "Payment Mode")
+      this._getColumnIndexBasedOnColumnName(headerRow, this._expCatColName),
+      this._getColumnIndexBasedOnColumnName(headerRow, this._expGrpColName),
+      this._getColumnIndexBasedOnColumnName(headerRow, this._payerColName),
+      this._getColumnIndexBasedOnColumnName(headerRow, this._payModeColName)
     ];
   }
 
@@ -556,6 +585,13 @@ class ExpenseManagerApp {
       }
     }
     this._checkForDuplicatesInSelection();
+
+    // Store in set for faster lookup
+    this._expenseCategoriesSet = new Set(this._expenseCategories);
+    this._expenseGroupsSet = new Set(this._expenseGroups);
+    this._payersSet = new Set(this._payers);
+    this._paymentModesSet = new Set(this._paymentModes);
+
     Logger.log(`Found following expense categories ${this._expenseCategories}`);
   }
 
@@ -573,7 +609,7 @@ class ExpenseManagerApp {
     }
     const headerRow = values[0];
     const [expenseCategoryColIdx, expenseGroupColIdx, payerColIdx, paymentModeColIdx]  = this._getColumnIndices(headerRow);
-    const amountIdx = this._getColumnIndexBasedOnColumnName(headerRow, "Amount (INR)");
+    const amountIdx = this._getColumnIndexBasedOnColumnName(headerRow, this._amountColName);
     // Define column letters for easier highlighting
     const colLetterExpenseCategory = String.fromCharCode(65 + expenseCategoryColIdx);
     const colLetterExpenseGroup = String.fromCharCode(65 + expenseGroupColIdx);
@@ -594,22 +630,22 @@ class ExpenseManagerApp {
       const payer = row[payerColIdx] ? row[payerColIdx].toString().trim() : "";
       const paymentMode = row[paymentModeColIdx] ? row[paymentModeColIdx].toString().trim() : "";
 
-      if(!this._expenseCategories.includes(expenseCategory)) {
+      if(!this._expenseCategoriesSet.has(expenseCategory)) {
         Logger.log(`Invalid Expense Category: '${expenseCategory}' in ${sheetName} row ${rowNum}`);
         expenseSheet.getRange(`${colLetterExpenseCategory}${rowNum}`).setBackground("red");
         ++invalidCount;
       }
-      if(!this._expenseGroups.includes(expenseGroup)) {
+      if(!this._expenseGroupsSet.has(expenseGroup)) {
         Logger.log(`Invalid Expense Group: '${expenseGroup}' in ${sheetName} row ${rowNum}`);
         expenseSheet.getRange(`${colLetterExpenseGroup}${rowNum}`).setBackground("red");
         ++invalidCount;
       }
-      if(!this._payers.includes(payer)) {
+      if(!this._payersSet.has(payer)) {
         Logger.log(`Invalid Payer: '${payer}' in ${sheetName} row ${rowNum}`);
         expenseSheet.getRange(`${colLetterPayer}${rowNum}`).setBackground("red");
         ++invalidCount;
       }
-      if(!this._paymentModes.includes(paymentMode)) {
+      if(!this._paymentModesSet.has(paymentMode)) {
         Logger.log(`Invalid Payment Mode: '${paymentMode}' in ${sheetName} row ${rowNum}`);
         expenseSheet.getRange(`${colLetterPaymentMode}${rowNum}`).setBackground("red");
         ++invalidCount;
