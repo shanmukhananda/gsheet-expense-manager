@@ -271,6 +271,73 @@ class ExpenseManagerApp {
     }
   }
 
+  _createSelectionsSheet() {
+    let selectionsSheet = this._spreadSheet.getSheetByName(this._selectionsSheetName);
+    selectionsSheet = this._spreadSheet.insertSheet(this._selectionsSheetName);
+    let headerRow = [this._expCatColName, this._expGrpColName, this._payerColName, this._payModeColName];
+    let range = selectionsSheet.getRange(1, 1, 1, headerRow.length);
+    range.setValues([headerRow]);
+    range.setFontWeight("bold");
+
+    const sampleExpCategories = [
+                                  "Accommodation",
+                                  "Entertainment",
+                                  "Fees",
+                                  "Food",
+                                  "Gift",
+                                  "Groceries",
+                                  "Healthcare",
+                                  "Household",
+                                  "Insurance",
+                                  "Refund",
+                                  "Rent",
+                                  "Shopping",
+                                  "Tax",
+                                  "Transportation",
+                                  "Utilities",
+                                  "Vehicle"
+                                ];
+    const sampleExpGrp = [
+                            "Daily Expenses",
+                            "Dubai Vacation",
+                            "USA Vacation"
+                          ];
+    const samplePayers = [
+                            "Ethan Hunt",
+                            "Jack Reacher",
+                            "Jack Ryan",
+                            "James Bond",
+                            "Jason Bourne"
+                          ];
+    const samplePayModes = [
+                              "Cash",
+                              "Online"
+                            ];
+    const startRowNum = 2;
+    const expCatColNum = this._getColumnIndexBasedOnColumnName(headerRow, this._expCatColName) + 1;
+    const expGrpColNum = this._getColumnIndexBasedOnColumnName(headerRow, this._expGrpColName) + 1;
+    const payerColNum = this._getColumnIndexBasedOnColumnName(headerRow, this._payerColName) + 1;
+    const payModeColNum = this._getColumnIndexBasedOnColumnName(headerRow, this._payModeColName) + 1;
+
+    range = selectionsSheet.getRange(startRowNum, expCatColNum, sampleExpCategories.length, 1);
+    // Transform your 1D array into a 2D array required by setValues()
+    // Each item needs to be wrapped in its own array: ['Apple'] becomes [['Apple']]
+    range.setValues(sampleExpCategories.map(value => [value]));
+
+    range = selectionsSheet.getRange(startRowNum, expGrpColNum, sampleExpGrp.length, 1);
+    range.setValues(sampleExpGrp.map(value => [value]));
+
+    range = selectionsSheet.getRange(startRowNum, payerColNum, samplePayers.length, 1);
+    range.setValues(samplePayers.map(value => [value]));
+
+    range = selectionsSheet.getRange(startRowNum, payModeColNum, samplePayModes.length, 1);
+    range.setValues(samplePayModes.map(value => [value]));
+
+    this._applyStandardFormattingToSheet(selectionsSheet);
+    Logger.log("Created new Selections sheet");
+    return selectionsSheet;
+  }
+
   _populateMonthlyReportData() {
     for(const sheetName of this._expenseSheetNames) {
       // Iterate through all sheets; multiple sheets might contain "Daily Expenses" group data.
@@ -524,9 +591,9 @@ class ExpenseManagerApp {
   }
 
   _getSelectionsSheet() {
-    const selectionsSheet = this._spreadSheet.getSheetByName(this._selectionsSheetName);
+    let selectionsSheet = this._spreadSheet.getSheetByName(this._selectionsSheetName);
     if(!selectionsSheet) {
-      throw new Error(`${this._selectionsSheetName} does not exist!`);
+      selectionsSheet = this._createSelectionsSheet();
     }
     return selectionsSheet;
   }
