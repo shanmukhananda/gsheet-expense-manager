@@ -2,10 +2,19 @@ function onOpen() {
   try {
     let ui = SpreadsheetApp.getUi();
     let menu = ui.createMenu("Expense Manager");
+    menu.addItem("Setup", "setup");
     menu.addItem("Create new expense sheet", "createExpenseSheet");
-    menu.addItem("Validate data", "setup");
-    menu.addItem("Generate summary", "summarize")
-    menu.addItem("Monthly report from 'Daily Expenses'", "monthlyReport")
+
+    let subMenu = ui.createMenu("Generate summary");
+    subMenu.addItem("Current sheet", "summarizeCurrentSheet");
+    subMenu.addItem("All sheets", "summarizeAllSheets");
+    menu.addSubMenu(subMenu);
+
+    subMenu = ui.createMenu("Monthly report");
+    subMenu.addItem("Current sheet", "monthlyReportCurrentSheet");
+    subMenu.addItem("All sheets", "monthlyReportAllSheets");
+    menu.addSubMenu(subMenu);
+
     menu.addItem("Payer spending report", "payerSpendingReport")
     menu.addToUi();
   } catch (err) {
@@ -25,10 +34,10 @@ function setup() {
   }
 }
 
-function summarize() {
+function summarizeCurrentSheet() {
   try {
     let expenseMgrApp = new ExpenseManagerApp();
-    expenseMgrApp.generateSummary();
+    expenseMgrApp.generateSummaryCurrentSheet();
     Browser.msgBox("Success", "Summary generation completed", Browser.Buttons.OK);
   } catch (err) {
       Logger.log(`Error occured ${err.message}`);
@@ -36,10 +45,32 @@ function summarize() {
   }
 }
 
-function monthlyReport() {
+function summarizeAllSheets() {
   try {
     let expenseMgrApp = new ExpenseManagerApp();
-    expenseMgrApp.monthlyReport();
+    expenseMgrApp.generateSummaryAllSheets();
+    Browser.msgBox("Success", "Summary generation completed", Browser.Buttons.OK);
+  } catch (err) {
+      Logger.log(`Error occured ${err.message}`);
+      Browser.msgBox("Error", err.message, Browser.Buttons.OK);
+  }
+}
+
+function monthlyReportCurrentSheet() {
+  try {
+    let expenseMgrApp = new ExpenseManagerApp();
+    expenseMgrApp.monthlyReportCurrentSheet();
+    Browser.msgBox("Success", "Monthly report generation completed", Browser.Buttons.OK);
+  } catch (err) {
+      Logger.log(`Error occured ${err.message}`);
+      Browser.msgBox("Error", err.message, Browser.Buttons.OK);
+  }
+}
+
+function monthlyReportAllSheets() {
+  try {
+    let expenseMgrApp = new ExpenseManagerApp();
+    expenseMgrApp.monthlyReportAllSheets();
     Browser.msgBox("Success", "Monthly report generation completed", Browser.Buttons.OK);
   } catch (err) {
       Logger.log(`Error occured ${err.message}`);
@@ -83,16 +114,20 @@ class ExpenseManagerApp {
     this._setupDropdowns();
   }
 
-  generateSummary() {
-    this._validateSelections();
-    this._populateSummaryData();
-    this._generateSummaryImpl();
+  generateSummaryCurrentSheet() {
+    this._generateSummary([this._getCurrentSheetName()]);
   }
 
-  monthlyReport() {
-    this._validateSelections();
-    this._populateMonthlyReportData();
-    this._generateMonthlyReport();
+  generateSummaryAllSheets() {
+    this._generateSummary(this._expenseSheetNames);
+  }
+
+  monthlyReportCurrentSheet() {
+    this._monthlyReport([this._getCurrentSheetName()])
+  }
+  
+  monthlyReportAllSheets() {
+    this._monthlyReport(this._expenseSheetNames);
   }
 
   createExpenseSheet() {
@@ -129,7 +164,6 @@ class ExpenseManagerApp {
 
   _init() {
     this._spreadSheet = SpreadsheetApp.getActiveSpreadsheet();
-    // Hardcoded nmaes
     this._selectionsSheetName = "Selections";
     this._summarySheetName = "Summary";
     this._monthlyReportSheetName = "Monthly Breakdown"
@@ -147,6 +181,8 @@ class ExpenseManagerApp {
     this._fontFamily = "Consolas";
     this._invalidDate = "Invalid Date";
     this._payerReportSheetName = "Payer Spending Report";
+    this._NonExpenseSheetNames = new Set([this._selectionsSheetName, this._summarySheetName, 
+                                          this._monthlyReportSheetName, this._payerReportSheetName]);
 
     // Use array for below contains to detect and error out duplicates
     this._expenseSheetNames = [];
@@ -173,6 +209,22 @@ class ExpenseManagerApp {
     this._summaryHeaderRow = [this._expGrpColName, this._expCatColName, this._amountColName, "% Within Group", "% of Overall Total"];
     this._monthlyReportHeaderRow = ["Month", ...this._expenseCategories, "Monthly Total (INR)"];
     this._payerSpendReportHeaderRow = ["Payer", ...this._expenseGroups, "Payer Total (INR)"];
+  }
+  
+  _generateSummary(sheetNames) {
+    this._populateSummaryData(sheetNames);
+    this._generateSummarySheet();
+  }
+
+  _monthlyReport(sheetNames) {
+    this._populateMonthlyReportData(sheetNames);
+    this._generateMonthlyReportSheet();
+  }
+
+  _getCurrentSheetName() {
+    const sheet = SpreadsheetApp.getActiveSheet();
+    const sheetName = sheet.getName();
+    return sheetName;
   }
 
   _applyStandardFormattingToSheet(sheet) {
@@ -418,10 +470,13 @@ class ExpenseManagerApp {
     Logger.log(`Payer report sheet generated in ${this._payerReportSheetName} sheet`);
   }
 
-  _populateMonthlyReportData() {
-    for(const sheetName of this._expenseSheetNames) {
+  _populateMonthlyReportData(sheetNames) {
+    for(const sheetName of sheetNames) {
       // Iterate through all sheets; multiple sheets might contain "Daily Expenses" group data.
       Logger.log(`Analyzing ${sheetName} for computing Monthly report from Daily Expenses`);
+      if(this._isNonExpenseSheet(sheetName)) {
+        throw new Error(`Cannot generate monthly report for sheet '${sheetName}'`);
+      }
       let sheet = this._spreadSheet.getSheetByName(sheetName);
       const values = sheet.getDataRange().getValues();
       const headerRow = sheet.getDataRange().getValues()[0];
@@ -458,7 +513,7 @@ class ExpenseManagerApp {
     }
   }
 
-  _generateMonthlyReport() {
+  _generateMonthlyReportSheet() {
     let output = [];
     output.push(this._monthlyReportHeaderRow);
 
@@ -544,7 +599,7 @@ class ExpenseManagerApp {
     }
   }
 
-  _generateSummaryImpl() {
+  _generateSummarySheet() {
     let output = [];
     output.push(this._summaryHeaderRow);
     for(const [groupName, groupInfo] of this._summaryData) {
@@ -587,36 +642,43 @@ class ExpenseManagerApp {
     }
   }
 
-  _populateSummaryData() {
-    for(const sheetName of this._expenseSheetNames) {
-      Logger.log(`Generating summary for ${sheetName}`);
-      let sheet = this._spreadSheet.getSheetByName(sheetName);
-      const values = sheet.getDataRange().getValues();
-      const headerRow = values[0];
-      const amountIdx = this._getColumnIndexBasedOnColumnName(headerRow, this._amountColName);
-      const expCatIdx = this._getColumnIndexBasedOnColumnName(headerRow, this._expCatColName);
-      const expGrpIdx = this._getColumnIndexBasedOnColumnName(headerRow, this._expGrpColName);
+  _populateSummaryDataFromSheet(sheet) {
+    const values = sheet.getDataRange().getValues();
+    const headerRow = values[0];
+    const amountIdx = this._getColumnIndexBasedOnColumnName(headerRow, this._amountColName);
+    const expCatIdx = this._getColumnIndexBasedOnColumnName(headerRow, this._expCatColName);
+    const expGrpIdx = this._getColumnIndexBasedOnColumnName(headerRow, this._expGrpColName);
 
-      for(let i = 1; i < values.length; ++i) {
-        // start for index 1 as 0th index contains the header
-        const currRow = values[i];
+    for(let i = 1; i < values.length; ++i) {
+      // start for index 1 as 0th index contains the header
+      const currRow = values[i];
 
-        const expGrpName = currRow[expGrpIdx].toString().trim();
-        const expCatName = currRow[expCatIdx].toString().trim();
-        const amount = parseFloat(currRow[amountIdx]);
+      const expGrpName = currRow[expGrpIdx].toString().trim();
+      const expCatName = currRow[expCatIdx].toString().trim();
+      const amount = parseFloat(currRow[amountIdx]);
 
-        let groupSummary = this._summaryData.get(expGrpName);
-        if(!groupSummary) {
-          groupSummary = {"GroupTotal": 0.0, "CategorialSum": new Map()};
-          this._summaryData.set(expGrpName, groupSummary);
-        }
-        if(expCatName !== this._refundCatName) {
-          groupSummary.GroupTotal += amount;
-          this._totalSum += amount;
-        }
-        const currSum = groupSummary.CategorialSum.get(expCatName) || 0;
-        groupSummary.CategorialSum.set(expCatName, currSum + amount);
+      let groupSummary = this._summaryData.get(expGrpName);
+      if(!groupSummary) {
+        groupSummary = {"GroupTotal": 0.0, "CategorialSum": new Map()};
+        this._summaryData.set(expGrpName, groupSummary);
       }
+      if(expCatName !== this._refundCatName) {
+        groupSummary.GroupTotal += amount;
+        this._totalSum += amount;
+      }
+      const currSum = groupSummary.CategorialSum.get(expCatName) || 0;
+      groupSummary.CategorialSum.set(expCatName, currSum + amount);
+    }
+  }
+
+  _populateSummaryData(sheetNames) {
+    for(const sheetName of sheetNames) {
+      Logger.log(`Generating summary for ${sheetName}`);
+      if(this._isNonExpenseSheet(sheetName)) {
+        throw new Error(`Cannot generate summary for sheet '${sheetName}'`);
+      }
+      let sheet = this._spreadSheet.getSheetByName(sheetName);
+      this._populateSummaryDataFromSheet(sheet);
     }
   }
   
@@ -644,18 +706,15 @@ class ExpenseManagerApp {
     return [ruleExpCat, ruleExpGrp, rulePayer, rulePayMode];
   }
 
-  _isExcludedSheet(currSheetName) {
-    return currSheetName === this._selectionsSheetName 
-    || currSheetName === this._summarySheetName 
-    || currSheetName === this._monthlyReportSheetName
-    || currSheetName === this._payerReportSheetName;
+  _isNonExpenseSheet(currSheetName) {
+    return this._NonExpenseSheetNames.has(currSheetName);
   }
 
   _computeAllExpenseSheetNames() {
     const sheets = this._spreadSheet.getSheets();
     for(const sheet of sheets) {
       const currSheetName = sheet.getName();
-      if(this._isExcludedSheet(currSheetName)) {
+      if(this._isNonExpenseSheet(currSheetName)) {
         continue;
       }
       this._expenseSheetNames.push(currSheetName);
@@ -808,8 +867,9 @@ class ExpenseManagerApp {
       const amtColNum = amountIdx + 1;
       expenseSheet.getRange(rowNum, amtColNum).setValue(numericVal);
     }
-    if (invalidCount > 0) {
-      this._validationErrors.push(`Found ${invalidCount} invalid selections in ${sheetName}`);
+    if (invalidCount === 0) {
+      return;
     }
+    this._validationErrors.push(`Found ${invalidCount} invalid selections in ${sheetName}`);
   }
 }
