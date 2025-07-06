@@ -1,55 +1,37 @@
-# Google App Script Expense Manager
+# Google Apps Script Expense Manager
 
-This Google App Script simplifies expense tracking in Google Sheets. It automates formatting, data validation, and generates insightful reports like summaries, monthly breakdowns, and payer spending analysis.
+A Google Apps Script to simplify expense tracking in Google Sheets. It automates formatting, data validation, and generates insightful reports.
 
 ## Features
 
-The "Expense Manager" custom menu in Google Sheets provides:
+The "Expense Manager" custom menu provides:
 
-* **Setup**: Initializes spreadsheet, sets up data validation, formats sheets, and creates/updates the "Selections" sheet.
+*   **Setup**: Initializes the spreadsheet with required sheets, formatting, and data validation.
+*   **Create New Expense Sheet**: Generates a new, pre-configured sheet for logging expenses.
+*   **Category-wise Summary**: Breaks down spending by category.
+*   **Payer-wise Report**: Analyzes spending by payer and expense group.
+*   **Monthly Report**: Generates a monthly spending summary.
+*   **Yearly Report**: Generates a yearly spending summary.
 
-* **Create new expense sheet**: Generates a new expense sheet with pre-configured headers, validation, and dropdowns.
+## Getting Started
 
-* **Generate Summary**: Creates an expense summary for the current sheet or all sheets.
-
-* **Monthly Report**: Generates a monthly spending report, primarily for "Daily Expenses," for the current sheet or all sheets.
-
-* **Payer spending report**: Provides a breakdown of spending by payer and expense group.
-
-## Installation
-
-1.  Open your Google Sheet and go to `Extensions` > `App Script`.
-
-2.  Copy the `Code.js` content into the `Code.gs` file in the script editor.
-
-3.  Save the script.
-
-4.  Refresh your Google Sheet; the "Expense Manager" menu will appear.
-
-## Setup and Usage
-
-1.  **Run Setup**: Click `Expense Manager` > `Setup`. Authorize the script if prompted. This populates your "Selections" sheet.
-
-2.  **Configure Selections**: Customize "Expense Category," "Expense Group," "Payer," and "Payment Mode" in the "Selections" sheet. Ensure no duplicates.
-
-3.  **Create Sheets**: Use `Expense Manager` > `Create new expense sheet` to add new expense logging sheets.
-
-4.  **Log Expenses**: Enter data into your expense sheets. `Date` (with a date picker), `Amount (INR)` (numeric only), and dropdowns for other categories will guide input.
-
-5.  **Generate Reports**: Use the menu options for "Generate summary," "Monthly report," and "Payer spending report" to analyze your expenses.
+1.  **Open Script Editor**: In your Google Sheet, go to `Extensions` > `Apps Script`.
+2.  **Add the Code**: Copy the content from `Code.js` and paste it into the `Code.gs` file in the editor. Save the project.
+3.  **Refresh Sheet**: Refresh your Google Sheet. The "Expense Manager" menu will appear.
+4.  **Run Setup**: Click `Expense Manager` > `Setup`. Authorize the script when prompted. This will create a "Selections" sheet.
+5.  **Customize**: Go to the "Selections" sheet to customize your expense categories, payers, etc.
+6.  **Track & Report**:
+    *   Use `Expense Manager` > `Create new expense sheet` to add sheets.
+    *   Log your expenses in these sheets.
+    *   Use the other menu options to generate reports.
 
 ## Sheet Structure
 
-* **Expense Sheets**: Any sheet not named "Selections", "Summary", "Monthly Breakdown", or "Payer Spending Report". Must contain: `Date`, `Amount (INR)`, `Expense Category`, `Expense Description`, `Expense Group`, `Payer`, `Payment Mode`.
+*   **Expense Sheets**: Where you log your daily expenses. The script will set up the required columns (`Date`, `Amount (INR)`, `Expense Category`, etc.).
+*   **"Selections" Sheet**: Contains the master lists for the dropdowns used in your expense sheets (e.g., categories, payers).
+*   **Report Sheets**: Sheets like `Summary`, `Monthly Breakdown`, and `Payer Spending Report` are automatically created and updated by the script when you run a report.
 
-* **"Selections" Sheet**: Holds master lists for dropdown values.
+## Notes
 
-* **Report Sheets**: `Summary`, `Monthly Breakdown`, `Payer Spending Report` are automatically generated/updated.
-
-## Important Notes
-
-* **Authorization**: Grant permissions when first prompted.
-
-* **Errors**: Red-highlighted cells indicate validation errors. Check App Script `Logs` for details.
-
-* **Customization**: Modify the `_init()` method in `ExpenseManagerApp` for advanced changes.
+*   **Data Validation**: Cells with invalid data (e.g., text in an amount field) will be highlighted in red.
+*   **Customization**: For advanced changes, modify the `_init()` method in the script.
