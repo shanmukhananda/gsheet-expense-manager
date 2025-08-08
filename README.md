@@ -35,3 +35,6 @@ The "Expense Manager" custom menu provides:
 
 *   **Data Validation**: Cells with invalid data (e.g., text in an amount field) will be highlighted in red.
 *   **Customization**: For advanced changes, modify the `_init()` method in the script.
+
+## Screenshots
+<img width="1241" height="375" alt="image" src="https://github.com/user-attachments/assets/442d947a-ef8f-4f09-acf9-31f7117f7aee" />
